@@ -19,12 +19,12 @@ def validate_team(team_df):
     if len(team_df) != 11:
         return False, f"Team must have exactly 11 players, but has {len(team_df)}"
     
-    # Check if we have at least one player from each role
+    # Check if we have at least one player from each role (support both full names and abbreviations)
     role_patterns = {
-        'Wicketkeeper': 'Wicketkeeper',
-        'Batter': 'Batter',
-        'All-rounder': 'All-rounder',
-        'Bowler': 'Bowler'
+        'Wicketkeeper': 'Wicketkeeper|WK',
+        'Batter': 'Batter|BAT',
+        'All-rounder': 'All-rounder|ALL',
+        'Bowler': 'Bowler|BOWL'
     }
     
     for role, pattern in role_patterns.items():
