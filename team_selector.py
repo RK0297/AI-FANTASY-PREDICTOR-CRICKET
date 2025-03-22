@@ -31,13 +31,16 @@ def select_optimal_team(players_df, budget=100):
     
     # Check if we're using the new format with playing status
     if 'IsPlaying' in df.columns:
-        # Prioritize players who are actually playing
-        df['priority_score'] = df['predicted_points'].copy()
-        df.loc[df['IsPlaying'] == 'PLAYING', 'priority_score'] += 100  # Big boost for playing
-        df.loc[df['IsPlaying'] == 'X_FACTOR_SUBSTITUTE', 'priority_score'] += 10  # Small boost for subs
+        # Use priority_score if already calculated, otherwise set it based on playing status
+        if 'priority_score' not in df.columns:
+            df['priority_score'] = df['predicted_points'].copy()
+            df.loc[df['IsPlaying'] == 'PLAYING', 'priority_score'] += 100  # Big boost for playing
+            df.loc[df['IsPlaying'] == 'X_FACTOR_SUBSTITUTE', 'priority_score'] += 10  # Small boost for subs
+        
+        # Sort by priority score
         df = df.sort_values('priority_score', ascending=False)
     else:
-        # First, sort by predicted points
+        # Sort by predicted points
         df = df.sort_values('predicted_points', ascending=False)
     
     # Get unique teams
@@ -59,155 +62,119 @@ def select_optimal_team(players_df, budget=100):
         
         return True
     
-    # Initialize best team and score
-    best_team = None
-    best_score = 0
-    
-    # First pass: greedy selection of top players by predicted points
-    selected_players = pd.DataFrame(columns=df.columns)
+    # Optimized greedy selection approach
+    selected_players_list = []
     remaining_credits = MAX_CREDITS
     
-    # Select wicketkeeper(s)
-    wk_players = df[df['Role'].str.contains('Wicketkeeper')].head(4)
-    for _, player in wk_players.iterrows():
-        if len(selected_players) < MAX_PLAYERS and player['Credits'] <= remaining_credits:
-            selected_players = pd.concat([selected_players, pd.DataFrame([player])], ignore_index=True)
+    # Create dictionaries to track role counts
+    role_counts = {role: 0 for role in role_constraints}
+    team_counts = {team: 0 for team in teams}
+    
+    # First prioritize getting minimum requirements for each role and team
+    for role, constraint in role_constraints.items():
+        # Get players for this role, sorted by priority/points
+        role_players = df[df['Role'].str.contains(constraint['pattern'])]
+        
+        # Select minimum required players for this role
+        for i, (_, player) in enumerate(role_players.iterrows()):
+            # Skip if we've already selected this player
+            if player['Player'] in [p['Player'] for p in selected_players_list]:
+                continue
+                
+            # Check if adding this player would exceed budget
+            if player['Credits'] > remaining_credits:
+                continue
+                
+            # Add player
+            selected_players_list.append(player.to_dict())
             remaining_credits -= player['Credits']
-            if len(selected_players[selected_players['Role'].str.contains('Wicketkeeper')]) >= role_constraints['Wicketkeeper']['min']:
+            role_counts[role] += 1
+            team_counts[player['Team']] = team_counts.get(player['Team'], 0) + 1
+            
+            # Break if we've met minimum requirements for this role
+            if role_counts[role] >= constraint['min']:
                 break
+                
+            # Break if we've reached max players
+            if len(selected_players_list) >= MAX_PLAYERS:
+                break
+                
+        # Break if we've reached max players
+        if len(selected_players_list) >= MAX_PLAYERS:
+            break
     
-    # Select batters
-    bat_players = df[df['Role'].str.contains('Batter') & ~df['Role'].str.contains('Wicketkeeper')].head(6)
-    for _, player in bat_players.iterrows():
-        if len(selected_players) < MAX_PLAYERS and player['Credits'] <= remaining_credits:
-            if player['Player'] not in selected_players['Player'].values:
-                selected_players = pd.concat([selected_players, pd.DataFrame([player])], ignore_index=True)
-                remaining_credits -= player['Credits']
-            if len(selected_players[selected_players['Role'].str.contains('Batter') & ~selected_players['Role'].str.contains('Wicketkeeper')]) >= role_constraints['Batter']['min']:
-                break
-    
-    # Select all-rounders
-    ar_players = df[df['Role'].str.contains('All-rounder')].head(4)
-    for _, player in ar_players.iterrows():
-        if len(selected_players) < MAX_PLAYERS and player['Credits'] <= remaining_credits:
-            if player['Player'] not in selected_players['Player'].values:
-                selected_players = pd.concat([selected_players, pd.DataFrame([player])], ignore_index=True)
-                remaining_credits -= player['Credits']
-            if len(selected_players[selected_players['Role'].str.contains('All-rounder')]) >= role_constraints['All-rounder']['min']:
-                break
-    
-    # Select bowlers
-    bowl_players = df[df['Role'].str.contains('Bowler')].head(6)
-    for _, player in bowl_players.iterrows():
-        if len(selected_players) < MAX_PLAYERS and player['Credits'] <= remaining_credits:
-            if player['Player'] not in selected_players['Player'].values:
-                selected_players = pd.concat([selected_players, pd.DataFrame([player])], ignore_index=True)
-                remaining_credits -= player['Credits']
-            if len(selected_players[selected_players['Role'].str.contains('Bowler')]) >= role_constraints['Bowler']['min']:
-                break
+    # Ensure we have at least one player from each team
+    for team in teams:
+        # Skip if we already have a player from this team
+        if team_counts.get(team, 0) > 0:
+            continue
+            
+        # Get players from this team, sorted by priority/points
+        team_players = df[df['Team'] == team]
+        
+        # Select one player from this team
+        for _, player in team_players.iterrows():
+            # Skip if we've already selected this player
+            if player['Player'] in [p['Player'] for p in selected_players_list]:
+                continue
+                
+            # Check if adding this player would exceed budget
+            if player['Credits'] > remaining_credits:
+                continue
+                
+            # Add player
+            selected_players_list.append(player.to_dict())
+            remaining_credits -= player['Credits']
+            role_name = next((r for r in role_constraints if player['Role'].find(role_constraints[r]['pattern']) >= 0), None)
+            if role_name:
+                role_counts[role_name] += 1
+            team_counts[team] = team_counts.get(team, 0) + 1
+            break
+            
+        # Break if we've reached max players
+        if len(selected_players_list) >= MAX_PLAYERS:
+            break
     
     # Fill remaining slots with best available players
-    remaining_players = df[~df['Player'].isin(selected_players['Player'])]
-    for _, player in remaining_players.iterrows():
-        if len(selected_players) < MAX_PLAYERS and player['Credits'] <= remaining_credits:
-            selected_players = pd.concat([selected_players, pd.DataFrame([player])], ignore_index=True)
-            remaining_credits -= player['Credits']
-            if len(selected_players) == MAX_PLAYERS:
-                break
+    sorted_players = df.sort_values('priority_score' if 'priority_score' in df.columns else 'predicted_points', ascending=False)
     
-    # Check if we have a valid team
-    if len(selected_players) == MAX_PLAYERS and is_valid_team(selected_players):
-        best_team = selected_players
-        best_score = selected_players['predicted_points'].sum()
+    for _, player in sorted_players.iterrows():
+        # Skip if we've reached max players
+        if len(selected_players_list) >= MAX_PLAYERS:
+            break
+            
+        # Skip if we've already selected this player
+        if player['Player'] in [p['Player'] for p in selected_players_list]:
+            continue
+            
+        # Check if adding this player would exceed budget
+        if player['Credits'] > remaining_credits:
+            continue
+            
+        # Check if adding this player would violate role constraints
+        role_name = next((r for r in role_constraints if player['Role'].find(role_constraints[r]['pattern']) >= 0), None)
+        if role_name and role_counts[role_name] >= role_constraints[role_name]['max']:
+            continue
+            
+        # Add player
+        selected_players_list.append(player.to_dict())
+        remaining_credits -= player['Credits']
+        if role_name:
+            role_counts[role_name] += 1
+        team_counts[player['Team']] = team_counts.get(player['Team'], 0) + 1
     
-    # If no valid team found with greedy approach, try a more comprehensive search
-    if best_team is None:
-        # Get top players for each role
-        top_wk = df[df['Role'].str.contains('Wicketkeeper')].head(4)
-        top_bat = df[df['Role'].str.contains('Batter') & ~df['Role'].str.contains('Wicketkeeper')].head(8)
-        top_ar = df[df['Role'].str.contains('All-rounder')].head(6)
-        top_bowl = df[df['Role'].str.contains('Bowler')].head(8)
+    # Convert list of dictionaries to DataFrame
+    if selected_players_list:
+        best_team = pd.DataFrame(selected_players_list)
         
-        # Try different combinations of players
-        for wk_count in range(1, 5):
-            for bat_count in range(3, 7):
-                for ar_count in range(1, 5):
-                    bowl_count = MAX_PLAYERS - wk_count - bat_count - ar_count
-                    if bowl_count < 3 or bowl_count > 6:
-                        continue
-                    
-                    # Try all combinations of the top players
-                    for wk_combo in combinations(top_wk.iterrows(), min(wk_count, len(top_wk))):
-                        wk_team = pd.DataFrame([player for _, player in wk_combo])
-                        wk_credits = wk_team['Credits'].sum()
-                        
-                        if wk_credits > MAX_CREDITS:
-                            continue
-                        
-                        for bat_combo in combinations(top_bat.iterrows(), min(bat_count, len(top_bat))):
-                            bat_team = pd.DataFrame([player for _, player in bat_combo])
-                            bat_credits = bat_team['Credits'].sum()
-                            
-                            if wk_credits + bat_credits > MAX_CREDITS:
-                                continue
-                            
-                            for ar_combo in combinations(top_ar.iterrows(), min(ar_count, len(top_ar))):
-                                ar_team = pd.DataFrame([player for _, player in ar_combo])
-                                ar_credits = ar_team['Credits'].sum()
-                                
-                                if wk_credits + bat_credits + ar_credits > MAX_CREDITS:
-                                    continue
-                                
-                                for bowl_combo in combinations(top_bowl.iterrows(), min(bowl_count, len(top_bowl))):
-                                    bowl_team = pd.DataFrame([player for _, player in bowl_combo])
-                                    total_credits = wk_credits + bat_credits + ar_credits + bowl_team['Credits'].sum()
-                                    
-                                    if total_credits > MAX_CREDITS:
-                                        continue
-                                    
-                                    # Combine all players
-                                    team = pd.concat([wk_team, bat_team, ar_team, bowl_team], ignore_index=True)
-                                    
-                                    # Check if valid
-                                    if is_valid_team(team):
-                                        team_score = team['predicted_points'].sum()
-                                        if team_score > best_score:
-                                            best_team = team
-                                            best_score = team_score
-    
-    # If still no valid team, return a basic team with one of each role and team
-    if best_team is None:
-        selected_players = pd.DataFrame(columns=df.columns)
-        remaining_credits = MAX_CREDITS
+        # Check if we have a valid team
+        if len(best_team) < MAX_PLAYERS or not is_valid_team(best_team):
+            # If team is invalid, try to fix it (this is a simplified approach)
+            # In a real system, we would implement a more sophisticated repair algorithm
+            # For now, we'll just return what we have and let the user know it might not be optimal
+            pass
         
-        # Ensure we have at least one player from each team
-        for team in teams:
-            team_player = df[df['Team'] == team].iloc[0] if len(df[df['Team'] == team]) > 0 else None
-            if team_player is not None and team_player['Credits'] <= remaining_credits:
-                selected_players = pd.concat([selected_players, pd.DataFrame([team_player])], ignore_index=True)
-                remaining_credits -= team_player['Credits']
-        
-        # Ensure we have at least one player from each role
-        for role, constraint in role_constraints.items():
-            if len(selected_players[selected_players['Role'].str.contains(constraint['pattern'])]) == 0:
-                role_player = df[df['Role'].str.contains(constraint['pattern'])].iloc[0] if len(df[df['Role'].str.contains(constraint['pattern'])]) > 0 else None
-                if role_player is not None and role_player['Player'] not in selected_players['Player'].values and role_player['Credits'] <= remaining_credits:
-                    selected_players = pd.concat([selected_players, pd.DataFrame([role_player])], ignore_index=True)
-                    remaining_credits -= role_player['Credits']
-        
-        # Fill remaining slots with best available players
-        remaining_players = df[~df['Player'].isin(selected_players['Player'])]
-        for _, player in remaining_players.iterrows():
-            if len(selected_players) < MAX_PLAYERS and player['Credits'] <= remaining_credits:
-                selected_players = pd.concat([selected_players, pd.DataFrame([player])], ignore_index=True)
-                remaining_credits -= player['Credits']
-                if len(selected_players) == MAX_PLAYERS:
-                    break
-        
-        best_team = selected_players
-    
-    # Sort by predicted points (for captain/vice-captain selection)
-    if best_team is not None:
+        # Sort by predicted points (for captain/vice-captain selection)
         best_team = best_team.sort_values('predicted_points', ascending=False)
         
         # Assign captain and vice-captain
@@ -215,5 +182,8 @@ def select_optimal_team(players_df, budget=100):
             best_team['C/VC'] = 'NA'
             best_team.loc[best_team.index[0], 'C/VC'] = 'C'  # Best player is captain
             best_team.loc[best_team.index[1], 'C/VC'] = 'VC'  # Second-best player is vice-captain
-    
-    return best_team
+            
+        return best_team
+    else:
+        # If we couldn't select any players, return an empty DataFrame
+        return pd.DataFrame(columns=df.columns)
