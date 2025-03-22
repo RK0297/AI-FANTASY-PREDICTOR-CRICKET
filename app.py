@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import os
 import io
 from data_processor import load_data, preprocess_data
-from model import train_random_forest_model, predict_player_performances
+from model import train_random_forest_model, predict_player_performances, DummyModel
 from team_selector import select_optimal_team
 from utils import validate_team, display_team, generate_csv_download
 
@@ -19,14 +19,20 @@ st.set_page_config(
 # App title and description
 st.title("Dream11 Fantasy Cricket Team Optimizer")
 st.markdown("""
-This application helps you select an optimal Dream11 fantasy cricket team using 
-machine learning. Upload your player data file to get started.
+This application helps you select an optimal Dream11 fantasy cricket team based on
+player stats, playing status, and lineup position. Upload your player data file to get started.
 """)
+
+# Initialize file upload state
+if 'file_uploaded' not in st.session_state:
+    st.session_state.file_uploaded = False
 
 # File uploader for player data
 uploaded_file = st.file_uploader("Upload player data (CSV)", type=["csv"])
 
 if uploaded_file is not None:
+    st.session_state.file_uploaded = True
+    
     # Load and preprocess data
     try:
         df = load_data(uploaded_file)
@@ -38,35 +44,57 @@ if uploaded_file is not None:
         # Process data
         processed_data = preprocess_data(df)
         
-        # Model training parameters
-        st.sidebar.header("Model Parameters")
-        n_estimators = st.sidebar.slider("Number of trees", 50, 500, 100, 50)
-        max_depth = st.sidebar.slider("Max depth", 3, 20, 10, 1)
-        
         # Team selection parameters
         st.sidebar.header("Team Selection Parameters")
         
-        # Match selection (for future implementation with schedule data)
-        # teams = df['Team'].unique().tolist()
-        # team1 = st.sidebar.selectbox("Select Team 1", teams)
-        # team2 = st.sidebar.selectbox("Select Team 2", teams, index=1 if len(teams) > 1 else 0)
+        # Priority settings if IsPlaying is in the data
+        if 'IsPlaying' in df.columns:
+            st.sidebar.subheader("Playing Status Priority")
+            playing_boost = st.sidebar.slider(
+                "PLAYING players boost", 
+                50, 150, 100, 10,
+                help="Higher values give more priority to players with PLAYING status"
+            )
+            substitute_boost = st.sidebar.slider(
+                "X_FACTOR_SUBSTITUTE players boost", 
+                0, 50, 10, 5,
+                help="Higher values give more priority to players with substitute status"
+            )
         
         # Budget constraint
         budget = st.sidebar.slider("Budget (credits)", 90, 100, 100, 0.5)
         
-        if st.sidebar.button("Generate Optimal Team"):
-            with st.spinner("Training model and generating optimal team..."):
-                # Train model
-                model = train_random_forest_model(
-                    processed_data,
-                    n_estimators=n_estimators,
-                    max_depth=max_depth
-                )
+        # Create a button with a more appropriate name
+        if 'IsPlaying' in df.columns:
+            generate_button = st.sidebar.button("Generate Optimal Team Based on Playing Status")
+        else:
+            # If we're still using the old format with RandomForest model
+            # Add model parameters
+            st.sidebar.header("Model Parameters")
+            n_estimators = st.sidebar.slider("Number of trees", 50, 500, 100, 50)
+            max_depth = st.sidebar.slider("Max depth", 3, 20, 10, 1)
+            generate_button = st.sidebar.button("Generate Optimal Team")
+        
+        if generate_button:
+            with st.spinner("Analyzing data and generating optimal team..."):
+                # Train model (or use dummy model for playing-status based prediction)
+                if 'IsPlaying' in df.columns:
+                    # For playing status-based prediction, we've already calculated predicted points
+                    # in the preprocessing step, so we use a dummy model
+                    model = DummyModel()
+                    # Update priority scores based on slider settings
+                    processed_data['priority_score'] = processed_data['predicted_points'].copy()
+                    processed_data.loc[processed_data['IsPlaying'] == 'PLAYING', 'priority_score'] += playing_boost
+                    processed_data.loc[processed_data['IsPlaying'] == 'X_FACTOR_SUBSTITUTE', 'priority_score'] += substitute_boost
+                else:
+                    # Traditional RandomForest model for historical stats
+                    model = train_random_forest_model(
+                        processed_data,
+                        n_estimators=n_estimators,
+                        max_depth=max_depth
+                    )
                 
-                # Get feature importance
-                feature_importances = model.feature_importances_
-                
-                # Make predictions
+                # Make predictions (or use pre-calculated predictions for playing-status model)
                 players_with_predictions = predict_player_performances(model, processed_data)
                 
                 # Select optimal team
@@ -75,26 +103,35 @@ if uploaded_file is not None:
                 # Validate team
                 is_valid, message = validate_team(optimal_team)
                 
-                st.header("Model Analysis")
-                
-                # Feature importance plot
-                st.subheader("Feature Importance")
-                fig, ax = plt.subplots(figsize=(10, 6))
-                features = processed_data.drop(['Player', 'Team', 'Role', 'Credits', 'predicted_points'], axis=1).columns
-                indices = np.argsort(feature_importances)[-10:]  # Top 10 features
-                
-                ax.barh(range(len(indices)), feature_importances[indices])
-                ax.set_yticks(range(len(indices)))
-                ax.set_yticklabels([features[i] for i in indices])
-                ax.set_xlabel('Feature Importance')
-                ax.set_title('Top 10 Features by Importance')
-                st.pyplot(fig)
+                # Only show feature importance for traditional model (not dummy model)
+                if not isinstance(model, DummyModel):
+                    st.header("Model Analysis")
+                    
+                    # Feature importance plot
+                    feature_importances = model.feature_importances_
+                    st.subheader("Feature Importance")
+                    fig, ax = plt.subplots(figsize=(10, 6))
+                    features = processed_data.drop(['Player', 'Team', 'Role', 'Credits', 'predicted_points'], axis=1).columns
+                    indices = np.argsort(feature_importances)[-10:]  # Top 10 features
+                    
+                    ax.barh(range(len(indices)), feature_importances[indices])
+                    ax.set_yticks(range(len(indices)))
+                    ax.set_yticklabels([features[i] for i in indices])
+                    ax.set_xlabel('Feature Importance')
+                    ax.set_title('Top 10 Features by Importance')
+                    st.pyplot(fig)
                 
                 # Display team selection results
                 st.header("Team Selection Results")
                 
                 if is_valid:
-                    display_team(optimal_team, "Optimal Dream11 Team")
+                    # Show playing status if available
+                    if 'IsPlaying' in optimal_team.columns:
+                        display_cols = ['Player', 'Team', 'Role', 'Credits', 'IsPlaying', 'predicted_points', 'C/VC']
+                    else:
+                        display_cols = ['Player', 'Team', 'Role', 'Credits', 'predicted_points', 'C/VC']
+                    
+                    display_team(optimal_team, "Optimal Dream11 Team", display_cols)
                     
                     # Generate CSV for download
                     csv_data = generate_csv_download(optimal_team)
@@ -108,7 +145,7 @@ if uploaded_file is not None:
                     )
                 else:
                     st.error(f"Could not generate a valid team: {message}")
-                    st.warning("Try adjusting the budget or model parameters.")
+                    st.warning("Try adjusting the budget or selection parameters.")
     
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
@@ -118,8 +155,12 @@ if uploaded_file is not None:
 st.sidebar.markdown("---")
 st.sidebar.subheader("About")
 st.sidebar.info("""
-This app uses RandomForest models to predict player performances
-and optimize Dream11 fantasy cricket team selection.
+This app optimizes Dream11 fantasy cricket team selection.
+
+**Key Features:**
+- Prioritizes players with 'PLAYING' status
+- Considers lineup position for batting order
+- Selects captain/vice-captain based on predicted performance
 
 **Rules Applied:**
 - 11 Players per team

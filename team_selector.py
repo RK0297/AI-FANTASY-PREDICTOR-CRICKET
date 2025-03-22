@@ -29,8 +29,16 @@ def select_optimal_team(players_df, budget=100):
         'Bowler': {'min': 3, 'max': 6, 'pattern': 'Bowler'}
     }
     
-    # First, sort by predicted points
-    df = df.sort_values('predicted_points', ascending=False)
+    # Check if we're using the new format with playing status
+    if 'IsPlaying' in df.columns:
+        # Prioritize players who are actually playing
+        df['priority_score'] = df['predicted_points'].copy()
+        df.loc[df['IsPlaying'] == 'PLAYING', 'priority_score'] += 100  # Big boost for playing
+        df.loc[df['IsPlaying'] == 'X_FACTOR_SUBSTITUTE', 'priority_score'] += 10  # Small boost for subs
+        df = df.sort_values('priority_score', ascending=False)
+    else:
+        # First, sort by predicted points
+        df = df.sort_values('predicted_points', ascending=False)
     
     # Get unique teams
     teams = df['Team'].unique()

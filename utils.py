@@ -50,13 +50,14 @@ def validate_team(team_df):
     
     return True, "Team is valid"
 
-def display_team(team_df, title):
+def display_team(team_df, title, display_cols=None):
     """
     Display the selected team in the Streamlit app
     
     Args:
         team_df: DataFrame with selected team
         title: Title to display above the team
+        display_cols: Optional list of columns to display
     """
     st.subheader(title)
     
@@ -78,8 +79,17 @@ def display_team(team_df, title):
     
     st.markdown(f"**Team Composition:** WK: {role_counts['WK']} | BAT: {role_counts['BAT']} | AR: {role_counts['AR']} | BOWL: {role_counts['BOWL']}")
     
+    # If playing status is available, show count of playing players
+    if 'IsPlaying' in team_df.columns:
+        playing_count = sum(team_df['IsPlaying'] == 'PLAYING')
+        substitute_count = sum(team_df['IsPlaying'] == 'X_FACTOR_SUBSTITUTE')
+        st.markdown(f"**Playing Status:** PLAYING: {playing_count} | SUBSTITUTE: {substitute_count} | NOT PLAYING: {11-playing_count-substitute_count}")
+    
     # Display team table
-    display_cols = ['Player', 'Team', 'Role', 'Credits', 'predicted_points', 'C/VC']
+    if display_cols is None:
+        display_cols = ['Player', 'Team', 'Role', 'Credits', 'predicted_points', 'C/VC']
+    
+    # Ensure we only show columns that exist in the dataframe
     display_cols = [col for col in display_cols if col in team_df.columns]
     
     # Create a styled dataframe
@@ -106,7 +116,15 @@ def generate_csv_download(team_df):
         String with CSV content
     """
     # Create a copy to avoid modifying the original
-    df_out = team_df[['Player', 'Team', 'C/VC']].copy()
+    output_columns = ['Player', 'Team', 'C/VC']
+    
+    # Add playing status if available
+    if 'IsPlaying' in team_df.columns:
+        output_columns.append('IsPlaying')
+    
+    # Select only columns that exist in the dataframe
+    output_columns = [col for col in output_columns if col in team_df.columns]
+    df_out = team_df[output_columns].copy()
     
     # Write to string buffer
     buffer = io.StringIO()
