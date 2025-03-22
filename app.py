@@ -44,22 +44,9 @@ if uploaded_file is not None:
         # Process data
         processed_data = preprocess_data(df)
         
-        # Team selection parameters
-        st.sidebar.header("Team Selection Parameters")
-        
-        # Priority settings if IsPlaying is in the data
-        if 'IsPlaying' in df.columns:
-            st.sidebar.subheader("Playing Status Priority")
-            playing_boost = st.sidebar.slider(
-                "PLAYING players boost", 
-                50, 150, 100, 10,
-                help="Higher values give more priority to players with PLAYING status"
-            )
-            substitute_boost = st.sidebar.slider(
-                "X_FACTOR_SUBSTITUTE players boost", 
-                0, 50, 10, 5,
-                help="Higher values give more priority to players with substitute status"
-            )
+        # Set default values for player boosts
+        playing_boost = 100
+        substitute_boost = 10
         
         # Budget constraint
         budget = st.sidebar.slider("Budget (credits)", 90.0, 100.0, 100.0, 0.5)
@@ -151,20 +138,5 @@ if uploaded_file is not None:
         st.error(f"An error occurred: {str(e)}")
         st.error("Please check your input file format and try again.")
 
-# Add information section
-st.sidebar.markdown("---")
-st.sidebar.subheader("About")
-st.sidebar.info("""
-This app optimizes Dream11 fantasy cricket team selection.
-
-**Key Features:**
-- Prioritizes players with 'PLAYING' status
-- Considers lineup position for batting order
-- Selects captain/vice-captain based on predicted performance
-
-**Rules Applied:**
-- 11 Players per team
-- At least 1 player from each team
-- At least 1 player from each role (WK, BAT, AR, BOWL)
-- Budget constraint (default: 100 credits)
-""")
+# Empty sidebar end
+st.sidebar.markdown("")
