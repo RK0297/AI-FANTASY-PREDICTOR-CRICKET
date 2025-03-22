@@ -61,40 +61,21 @@ def display_team(team_df, title, display_cols=None):
     """
     st.subheader(title)
     
-    # Calculate team stats
+    # Calculate team stats - this part is kept minimal
     total_credits = team_df['Credits'].sum()
-    predicted_points = team_df['predicted_points'].sum()
     
-    # Display team stats
+    # Simple total credits display
     st.markdown(f"**Total Credits:** {total_credits:.1f}/100")
-    st.markdown(f"**Predicted Points:** {predicted_points:.1f}")
     
-    # Display role counts
-    role_counts = {
-        'WK': sum(team_df['Role'].str.contains('Wicketkeeper')),
-        'BAT': sum(team_df['Role'].str.contains('Batter') & ~team_df['Role'].str.contains('Wicketkeeper')),
-        'AR': sum(team_df['Role'].str.contains('All-rounder')),
-        'BOWL': sum(team_df['Role'].str.contains('Bowler'))
-    }
-    
-    st.markdown(f"**Team Composition:** WK: {role_counts['WK']} | BAT: {role_counts['BAT']} | AR: {role_counts['AR']} | BOWL: {role_counts['BOWL']}")
-    
-    # If playing status is available, show count of playing players
-    if 'IsPlaying' in team_df.columns:
-        playing_count = sum(team_df['IsPlaying'] == 'PLAYING')
-        substitute_count = sum(team_df['IsPlaying'] == 'X_FACTOR_SUBSTITUTE')
-        st.markdown(f"**Playing Status:** PLAYING: {playing_count} | SUBSTITUTE: {substitute_count} | NOT PLAYING: {11-playing_count-substitute_count}")
-    
-    # Display team table
-    if display_cols is None:
-        display_cols = ['Player', 'Team', 'Role', 'Credits', 'predicted_points', 'C/VC']
+    # Display team table with only Player, Team, and C/VC
+    simplified_cols = ['Player', 'Team', 'C/VC']
     
     # Ensure we only show columns that exist in the dataframe
-    display_cols = [col for col in display_cols if col in team_df.columns]
+    simplified_cols = [col for col in simplified_cols if col in team_df.columns]
     
-    # Create a styled dataframe
+    # Create a simplified dataframe
     st.dataframe(
-        team_df[display_cols]
+        team_df[simplified_cols]
     )
     
     # Display captain and vice-captain
