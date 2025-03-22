@@ -62,7 +62,7 @@ if uploaded_file is not None:
             )
         
         # Budget constraint
-        budget = st.sidebar.slider("Budget (credits)", 90, 100, 100, 0.5)
+        budget = st.sidebar.slider("Budget (credits)", 90.0, 100.0, 100.0, 0.5)
         
         # Create a button with a more appropriate name
         if 'IsPlaying' in df.columns:
