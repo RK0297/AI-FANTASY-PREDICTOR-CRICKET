@@ -52,6 +52,18 @@ def preprocess_data(df):
     
     # Create role-specific features
     if 'Role' in data.columns:
+        # Map abbreviated player types to full names if needed
+        role_mapping = {
+            'WK': 'Wicketkeeper',
+            'BAT': 'Batter',
+            'BOWL': 'Bowler',
+            'ALL': 'All-rounder'
+        }
+        
+        # Check if we have abbreviated roles and convert them
+        if data['Role'].str.contains('WK|BAT|BOWL|ALL').any():
+            data['Role'] = data['Role'].map(role_mapping).fillna(data['Role'])
+            
         # Create role indicators
         data['is_batsman'] = data['Role'].str.contains('Batter').astype(int)
         data['is_bowler'] = data['Role'].str.contains('Bowler').astype(int)
