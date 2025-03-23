@@ -1,100 +1,70 @@
+import xgboost as xgb
 import numpy as np
+from sklearn.model_selection import GridSearchCV, train_test_split
+from sklearn.metrics import mean_squared_error, make_scorer
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split
-from data_processor import scale_features
 
-def train_random_forest_model(processed_data, n_estimators=100, max_depth=10):
+def train_xgboost_model(data, use_grid_search=True, random_state=42):
     """
-    Train a RandomForest model to predict player performance
+    Trains an XGBoost model using either hyperparameter tuning (GridSearchCV)
+    or default parameters.
     
-    Args:
-        processed_data: Preprocessed player data
-        n_estimators: Number of trees in the forest
-        max_depth: Maximum depth of the trees
-        
+    Parameters:
+      data (pd.DataFrame): Preprocessed data including 'predicted_points'.
+      use_grid_search (bool): Set to True to perform hyperparameter tuning.
+      random_state (int): Random seed for reproducibility.
+    
     Returns:
-        Trained RandomForest model
+      model: The trained XGBoost model.
     """
-    # If we're using the new format with playing status, skip training
-    if 'IsPlaying' in processed_data.columns:
-        # Return a dummy model - we'll use our pre-calculated predictions directly
-        return DummyModel()
+    # Prepare features and target (dropping non-numeric columns)
+    features = data.drop(['Player', 'Team', 'Role', 'Credits', 'predicted_points', 'IsPlaying', 'lineupOrder'], axis=1, errors='ignore')
+    target = data['predicted_points']
     
-    # Scale features
-    scaled_data, numeric_features = scale_features(processed_data)
+    # Split for hyperparameter tuning purposes
+    X_train, X_test, y_train, y_test = train_test_split(features, target, test_size=0.2, random_state=random_state)
     
-    # Define target variable based on available columns
-    if 'Dream11_Avg' in processed_data.columns:
-        target = processed_data['Dream11_Avg']
-    elif 'TOTAL DREAM 11 POINTS' in processed_data.columns:
-        target = processed_data['TOTAL DREAM 11 POINTS']
+    if use_grid_search:
+        param_grid = {
+            'n_estimators': [150, 200, 250],
+            'max_depth': [4, 6, 8],
+            'learning_rate': [0.01, 0.1, 0.2],
+            'subsample': [0.7, 0.8, 0.9]
+        }
+        # Define RMSE scorer (lower is better)
+        rmse_scorer = make_scorer(lambda y_true, y_pred: np.sqrt(mean_squared_error(y_true, y_pred)), greater_is_better=False)
+        xgb_reg = xgb.XGBRegressor(objective='reg:squarederror', random_state=random_state)
+        grid_search = GridSearchCV(estimator=xgb_reg, param_grid=param_grid, scoring=rmse_scorer, cv=3, n_jobs=-1, verbose=1)
+        grid_search.fit(X_train, y_train)
+        best_model = grid_search.best_estimator_
+        test_rmse = np.sqrt(mean_squared_error(y_test, best_model.predict(X_test)))
+        print("Best hyperparameters found:", grid_search.best_params_)
+        print("Test RMSE:", test_rmse)
+        return best_model
     else:
-        # Fallback to Overall_Impact_Score if available
-        target = processed_data['Overall_Impact_Score'] if 'Overall_Impact_Score' in processed_data.columns else None
-    
-    if target is None:
-        # If no suitable target found, create a dummy model
-        return DummyModel()
-    
-    # Prepare features
-    features = scaled_data[numeric_features].copy()
-    
-    # Train model
-    model = RandomForestRegressor(
-        n_estimators=n_estimators,
-        max_depth=max_depth,
-        random_state=42
-    )
-    model.fit(features, target)
-    
-    return model
+        # Train default model with preset parameters
+        model = xgb.XGBRegressor(
+            objective='reg:squarederror', 
+            n_estimators=200, 
+            max_depth=6, 
+            learning_rate=0.1, 
+            subsample=0.8, 
+            random_state=random_state
+        )
+        model.fit(features, target)
+        return model
 
-def predict_player_performances(model, processed_data):
+def predict_player_performances(model, input_data):
     """
-    Predict player performances using the trained model
+    Predicts player performances using the trained model.
     
-    Args:
-        model: Trained RandomForest model or DummyModel
-        processed_data: Preprocessed player data
-        
+    Parameters:
+      model: Trained XGBoost regression model.
+      input_data (pd.DataFrame): Preprocessed features (must match training features).
+      
     Returns:
-        DataFrame with player performances
+      array: Predicted performance values.
     """
-    result_data = processed_data.copy()
+    predictions = model.predict(input_data)
+    return predictions
     
-    # Check if we're using a DummyModel (for playing status-based predictions)
-    if isinstance(model, DummyModel):
-        # The predictions are already calculated in the preprocessed data
-        # Sort by predicted points (descending)
-        result_data = result_data.sort_values('predicted_points', ascending=False)
-        return result_data
-    
-    # For traditional model prediction:
-    # Scale features
-    scaled_data, numeric_features = scale_features(processed_data)
-    
-    # Predict performance
-    predictions = model.predict(scaled_data[numeric_features])
-    
-    # Add predictions to data
-    result_data['predicted_points'] = predictions
-    
-    # Sort by predicted points (descending)
-    result_data = result_data.sort_values('predicted_points', ascending=False)
-    
-    return result_data
-
-
-class DummyModel:
-    """
-    A dummy model class that doesn't actually do any predictions.
-    This is used when we already have predictions calculated based on 
-    playing status and lineup position.
-    """
-    def __init__(self):
-        self.feature_importances_ = np.array([0.5, 0.3, 0.2])  # Dummy feature importances
-        
-    def predict(self, features):
-        # Returns the same values for all inputs (not used in practice)
-        return np.ones(len(features)) * 50
