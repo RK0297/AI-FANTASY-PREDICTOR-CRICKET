@@ -24,9 +24,9 @@ def select_optimal_team(players_df, budget=100):
     # Define role constraints (support both full names and abbreviations)
     role_constraints = {
         'Wicketkeeper': {'min': 1, 'max': 4, 'pattern': 'Wicketkeeper|WK'},
-        'Batter': {'min': 3, 'max': 6, 'pattern': 'Batter|BAT'},
+        'Batter': {'min': 1, 'max': 6, 'pattern': 'Batter|BAT'},
         'All-rounder': {'min': 1, 'max': 4, 'pattern': 'All-rounder|ALL'},
-        'Bowler': {'min': 3, 'max': 6, 'pattern': 'Bowler|BOWL'}
+        'Bowler': {'min': 1, 'max': 6, 'pattern': 'Bowler|BOWL'}
     }
     
     # Check if we're using the new format with playing status
