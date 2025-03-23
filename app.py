@@ -4,10 +4,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import io
+st.title("Fantasy Cricket Predictor")
 from data_processor import load_data, preprocess_data
 from model import train_random_forest_model, predict_player_performances, DummyModel
 from team_selector import select_optimal_team
 from utils import validate_team, display_team, generate_csv_download
+
 
 # Set page config
 st.set_page_config(
